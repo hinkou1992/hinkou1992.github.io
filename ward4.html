@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>病房交車廣播 (Gun.js 修正版)</title>
+  <style>
+    body {
+      background-color: black;
+      color: white;
+      font-family: sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    #header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      background-color: #333;
+    }
+    #datetime {
+      font-size: 1.1em;
+    }
+    #adminToggle {
+      padding: 5px 10px;
+      background-color: #555;
+      border: none;
+      border-radius: 5px;
+      color: white;
+      cursor: pointer;
+    }
+    .floor-rows {
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .floor-row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+    .floor-column {
+      flex: 1;
+      min-width: 120px;
+      background-color: #222;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .floor-column h2 {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    .button-container {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-height: 50px;
+    }
+    .room-btn {
+      flex: 1;
+      padding: 10px;
+      font-size: 0.9em;
+      border: none;
+      border-radius: 5px;
+      background-color: #808080;
+      text-align: left;
+      cursor: pointer;
+      position: relative;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <div id="datetime"></div>
+    <button id="adminToggle">管理者模式</button>
+  </div>
+  <h1>病房交車廣播</h1>
+  <div class="floor-rows" id="floorRows"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+  <script>
+    const gun = Gun();
+    const gunRoomStatus = gun.get('roomStatus');
+    const gunRoomGroups = gun.get('roomGroups');
+
+    let roomStatus = {};
+    let roomGroups = {};
+
+    gunRoomStatus.on(data => {
+      roomStatus = data || {};
+      renderFloors();
+    });
+
+    gunRoomGroups.once(data => {
+      roomGroups = data || getDefaultGroup();
+      updateRoomGroupsInDB(roomGroups); 
+      renderFloors();
+    });
+
+    function updateRoomStatusInDB(newStatus) {
+      gunRoomStatus.put(newStatus);
+    }
+    function updateRoomGroupsInDB(newGroups) {
+      gunRoomGroups.put(newGroups);
+    }
+
+    function renderFloors() {
+      console.log("roomGroups:", roomGroups);
+      console.log("roomStatus:", roomStatus);
+
+      const floorRowsDiv = document.getElementById("floorRows");
+      floorRowsDiv.innerHTML = "";
+      let groups = roomGroups;
+      if (!groups || Object.keys(groups).length === 0) {
+        groups = getDefaultGroup();
+        updateRoomGroupsInDB(groups);
+      }
+
+      let floors = Object.keys(groups).sort((a, b) => Number(a) - Number(b));
+      if (floors.length === 0) {
+        floorRowsDiv.textContent = "目前沒有病房資料";
+        return;
+      }
+
+      const mid = Math.ceil(floors.length / 2);
+      const topFloors = floors.slice(0, mid);
+      const bottomFloors = floors.slice(mid);
+
+      const topRow = document.createElement("div");
+      topRow.className = "floor-row";
+      topFloors.forEach(floor => {
+        topRow.appendChild(createFloorColumn(floor, groups[floor]));
+      });
+
+      const bottomRow = document.createElement("div");
+      bottomRow.className = "floor-row";
+      bottomFloors.forEach(floor => {
+        bottomRow.appendChild(createFloorColumn(floor, groups[floor]));
+      });
+
+      floorRowsDiv.appendChild(topRow);
+      floorRowsDiv.appendChild(bottomRow);
+    }
+
+    function createFloorColumn(floor, rooms) {
+      const col = document.createElement("div");
+      col.className = "floor-column";
+      col.setAttribute("data-floor", floor);
+      const header = document.createElement("h2");
+      header.textContent = floor;
+      col.appendChild(header);
+      const container = document.createElement("div");
+      container.className = "button-container";
+      rooms.forEach(room => {
+        container.appendChild(createRoomButton(room));
+      });
+      col.appendChild(container);
+      return col;
+    }
+
+    function createRoomButton(room) {
+      const btn = document.createElement("button");
+      btn.className = "room-btn";
+      btn.textContent = room + " 未交車";
+      btn.onclick = () => {
+        if (!roomStatus[room] || !roomStatus[room].handed) {
+          roomStatus[room] = { handed: true };
+          btn.textContent = room + " 已交車";
+        } else {
+          roomStatus[room].handed = false;
+          btn.textContent = room + " 未交車";
+        }
+        updateRoomStatusInDB(roomStatus);
+      };
+      return btn;
+    }
+
+    function getDefaultGroup() {
+      return {
+        "1": ["1A1"],
+        "3": ["3A1", "3A2"],
+        "4": ["4A1", "4A2"]
+      };
+    }
+
+    setTimeout(() => {
+      renderFloors();
+    }, 3000);
+  </script>
+</body>
+</html>
