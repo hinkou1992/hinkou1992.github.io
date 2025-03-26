@@ -149,12 +149,12 @@
   </style>
 </head>
 <body>
-  <!-- 頁首：左上顯示日期時間，右上切換管理者模式 -->
+  <!-- 頁首區塊 -->
   <div id="header">
     <div id="datetime"></div>
     <button id="adminToggle">管理者模式</button>
   </div>
-  <!-- 管理者面板：新增病房、重設所有病房及自動重設選項 -->
+  <!-- 管理者面板 -->
   <div id="adminPanel">
     <label for="newRoom">新增病房（例如：2B1）：</label>
     <input type="text" id="newRoom" placeholder="例如：2B1">
@@ -175,7 +175,7 @@
   <script>
     /********** Gun.js 同步初始化 **********/
     const gun = Gun();
-    // 三個同步節點：roomStatus、roomGroups 與 settings
+    // 建立三個同步節點：roomStatus, roomGroups, settings
     const gunRoomStatus = gun.get('roomStatus');
     const gunRoomGroups = gun.get('roomGroups');
     const gunSettings = gun.get('settings');
@@ -228,7 +228,7 @@
       const match = room.match(/^\d+/);
       return match ? match[0] : "";
     }
-    // 預設分組（依樓層分組）
+    // 預設分組：依樓層分組
     function getDefaultGroup() {
       const groups = {};
       defaultRooms.forEach(room => {
@@ -237,6 +237,10 @@
         groups[floor].push(room);
       });
       return groups;
+    }
+    // 補充：loadGroups() 函式回傳全域 roomGroups
+    function loadGroups() {
+      return roomGroups;
     }
 
     /********** 自動重設設定 **********/
@@ -292,7 +296,7 @@
           updateRoomStatusInDB(roomStatus);
           updateRoomBtnDisplay(roomBtn, room);
           if (!isAdminMode) {
-            let utterText = roomStatus[room].voiceText ? roomStatus[room].voiceText
+            let utterText = roomStatus[room].voiceText ? roomStatus[room].voiceText 
                            : (room.indexOf("D") !== -1 ? room.replace(/D/g, "豬") + "交車" : room + "交車");
             const utterance = new SpeechSynthesisUtterance(utterText);
             utterance.lang = "zh-TW";
@@ -308,7 +312,7 @@
         }
       };
 
-      // 拖曳事件（拖曳整個 container，以 roomBtn 為觸發目標）
+      // 拖曳事件：拖曳整個 container（以 roomBtn 為觸發目標）
       roomBtn.addEventListener("dragstart", function(e) {
         dragSrcEl = container;
         e.dataTransfer.effectAllowed = 'move';
@@ -397,7 +401,7 @@
       const floorRowsDiv = document.getElementById("floorRows");
       floorRowsDiv.innerHTML = "";
       let groups = loadGroups();
-      // 刪除空的樓層
+      // 刪除空樓層
       for (let floor in groups) {
         if (!groups[floor] || groups[floor].length === 0) {
           delete groups[floor];
@@ -469,7 +473,6 @@
         return;
       }
       groups[floor].push(room);
-      // 將更新結果寫入 Gun
       updateRoomGroupsInDB(groups);
     }
     function removeRoom(room) {
@@ -517,7 +520,6 @@
     };
 
     document.getElementById("resetAllBtn").onclick = resetAllRooms;
-
     document.getElementById("autoResetCheckbox").onchange = (e) => {
       settings.autoResetEnabled = e.target.checked;
       updateSettingsInDB(settings);
