@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>病房交車廣播 (Gun.js 修正版)</title>
+  <title>病房交車廣播 (Gun.js 同步版)</title>
   <style>
     body {
       background-color: black;
@@ -11,6 +11,7 @@
       margin: 0;
       padding: 0;
     }
+    /* 頁首區塊 */
     #header {
       display: flex;
       justify-content: space-between;
@@ -29,11 +30,39 @@
       color: white;
       cursor: pointer;
     }
-    .floor-rows {
+    /* 管理者面板 */
+    #adminPanel {
       padding: 10px;
+      background-color: #444;
+      display: none;
+    }
+    #adminPanel input[type="text"] {
+      padding: 5px;
+      border: none;
+      border-radius: 3px;
+    }
+    #adminPanel button {
+      padding: 5px 10px;
+      margin-left: 5px;
+      background-color: #666;
+      border: none;
+      border-radius: 5px;
+      color: white;
+      cursor: pointer;
+    }
+    #adminPanel label {
+      margin-right: 10px;
+    }
+    h1 {
+      text-align: center;
+      margin: 10px 0;
+    }
+    /* 樓層排版 */
+    .floor-rows {
       display: flex;
       flex-direction: column;
       gap: 10px;
+      padding: 10px;
     }
     .floor-row {
       display: flex;
@@ -57,88 +86,345 @@
       gap: 5px;
       min-height: 50px;
     }
+    /* 房間容器：左側 ready 按鈕 / 右側交車按鈕 */
+    .room-container {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+    .ready-btn {
+      padding: 10px;
+      font-size: 0.8em;
+      border: none;
+      border-radius: 5px;
+      color: white;
+      cursor: pointer;
+      min-width: 70px;
+      background-color: #555; /* 預設不可交車色 */
+    }
+    .ready-btn:hover {
+      opacity: 0.8;
+    }
     .room-btn {
       flex: 1;
       padding: 10px;
       font-size: 0.9em;
       border: none;
       border-radius: 5px;
-      background-color: #808080;
       text-align: left;
-      cursor: pointer;
+      cursor: move;
+      background-color: #808080; /* 未交車灰色 */
       position: relative;
+    }
+    .room-btn:hover {
+      opacity: 0.8;
+    }
+    /* 管理者模式下的按鈕（刪除與編輯語音） */
+    .remove-btn, .edit-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      border: none;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      line-height: 16px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 0.8em;
+      display: none;
+    }
+    .remove-btn {
+      right: 5px;
+      background-color: red;
+    }
+    .edit-btn {
+      right: 30px;
+      background-color: orange;
+    }
+    .admin .remove-btn,
+    .admin .edit-btn {
+      display: block;
     }
   </style>
 </head>
 <body>
+  <!-- 頁首：左上顯示日期時間，右上切換管理者模式 -->
   <div id="header">
     <div id="datetime"></div>
     <button id="adminToggle">管理者模式</button>
   </div>
+  <!-- 管理者面板：新增病房、重設所有病房及自動重設選項 -->
+  <div id="adminPanel">
+    <label for="newRoom">新增病房（例如：2B1）：</label>
+    <input type="text" id="newRoom" placeholder="例如：2B1">
+    <button id="addRoomBtn">新增病房</button>
+    <button id="resetAllBtn">重設所有病房</button>
+    <br><br>
+    <label>
+      <input type="checkbox" id="autoResetCheckbox">
+      隔日自動回復所有病房狀態
+    </label>
+  </div>
   <h1>病房交車廣播</h1>
+  <!-- 病房呈現區 -->
   <div class="floor-rows" id="floorRows"></div>
 
+  <!-- 引入 Gun.js -->
   <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
   <script>
+    /********** Gun.js 同步初始化 **********/
     const gun = Gun();
+    // 三個同步節點：roomStatus、roomGroups 與 settings
     const gunRoomStatus = gun.get('roomStatus');
     const gunRoomGroups = gun.get('roomGroups');
+    const gunSettings = gun.get('settings');
 
-    let roomStatus = {};
-    let roomGroups = {};
+    // 全域同步變數
+    let roomStatus = {};  // 格式：{ "1A1": { handed: true, time: "14:30:00", ready: true, voiceText: "..." }, ... }
+    let roomGroups = {};  // 格式：{ "1": ["1A1", ...], "3": [...], ... }
+    let settings = { autoResetEnabled: false, lastResetDate: "" };
 
-    gunRoomStatus.on(data => {
-      roomStatus = data || {};
-      renderFloors();
+    // 監聽 Gun 節點更新
+    gunRoomStatus.on(data => { roomStatus = data || {}; renderFloors(); });
+    gunRoomGroups.on(data => { roomGroups = data || getDefaultGroup(); renderFloors(); });
+    gunSettings.on(data => {
+      settings = data || { autoResetEnabled: false, lastResetDate: "" };
+      document.getElementById("autoResetCheckbox").checked = settings.autoResetEnabled;
+      checkAutoReset();
     });
 
-    gunRoomGroups.once(data => {
-      roomGroups = data || getDefaultGroup();
-      updateRoomGroupsInDB(roomGroups); 
-      renderFloors();
-    });
+    // 更新 Gun 節點資料
+    function updateRoomStatusInDB(newStatus) { gunRoomStatus.put(newStatus); }
+    function updateRoomGroupsInDB(newGroups) { gunRoomGroups.put(newGroups); }
+    function updateSettingsInDB(newSettings) { gunSettings.put(newSettings); }
 
-    function updateRoomStatusInDB(newStatus) {
-      gunRoomStatus.put(newStatus);
+    /********** 日期與時間 **********/
+    function updateDateTime() {
+      const now = new Date();
+      document.getElementById("datetime").textContent = now.toLocaleString();
     }
-    function updateRoomGroupsInDB(newGroups) {
-      gunRoomGroups.put(newGroups);
+    updateDateTime();
+    setInterval(updateDateTime, 1000);
+
+    /********** 預設病房資料與分組 **********/
+    const defaultRooms = [
+      "1A1",
+      "3A1", "3A2", "3B1", "3B2", "3C1", "3C2",
+      "4A1", "4A2", "4B1", "4B2", "4C1", "4C2", "4D1",
+      "5A", "5B", "5C", "5D", "5CVIA", "5CVIB",
+      "6A", "6B", "6C", "6D",
+      "7A", "7B", "7C", "7D",
+      "8A", "8B", "8C", "8D",
+      "9A", "9B", "9C", "9D",
+      "11A", "11B", "11C", "11D",
+      "12A", "12B", "12C", "12D",
+      "13A", "13B", "13C", "13D",
+      "14A", "14B", "14C", "14D",
+      "15A", "15B", "15C"
+    ];
+    // 取房號前數字作為樓層
+    function getFloor(room) {
+      const match = room.match(/^\d+/);
+      return match ? match[0] : "";
+    }
+    // 預設分組（依樓層分組）
+    function getDefaultGroup() {
+      const groups = {};
+      defaultRooms.forEach(room => {
+        const floor = getFloor(room);
+        if (!groups[floor]) groups[floor] = [];
+        groups[floor].push(room);
+      });
+      return groups;
     }
 
+    /********** 自動重設設定 **********/
+    function checkAutoReset() {
+      if (!settings.autoResetEnabled) return;
+      const today = new Date().toISOString().slice(0,10);
+      if (settings.lastResetDate !== today) {
+        // 隔日自動重設：清空所有房間交車狀態
+        updateRoomStatusInDB({});
+        settings.lastResetDate = today;
+        updateSettingsInDB(settings);
+      }
+    }
+    checkAutoReset();
+
+    /********** 產生病房區塊 **********/
+    let dragSrcEl = null;
+    // 建立包含左側 ready 按鈕與右側交車按鈕的容器
+    function createRoomContainer(room) {
+      const container = document.createElement("div");
+      container.className = "room-container";
+      container.setAttribute("data-room", room);
+
+      // 左側 ready 按鈕
+      const readyBtn = document.createElement("button");
+      readyBtn.className = "ready-btn";
+      updateReadyBtnDisplay(readyBtn, room);
+      readyBtn.onclick = (e) => {
+        e.stopPropagation();
+        const current = roomStatus[room] && roomStatus[room].ready;
+        if (!roomStatus[room]) {
+          roomStatus[room] = { handed: false, ready: true };
+        } else {
+          roomStatus[room].ready = !current;
+        }
+        updateRoomStatusInDB(roomStatus);
+      };
+
+      // 右側交車按鈕
+      const roomBtn = document.createElement("button");
+      roomBtn.className = "room-btn";
+      roomBtn.setAttribute("draggable", "true");
+      roomBtn.setAttribute("data-room", room);
+      updateRoomBtnDisplay(roomBtn, room);
+      roomBtn.onclick = (e) => {
+        if (e.target.classList.contains("remove-btn") || e.target.classList.contains("edit-btn")) return;
+        if (!roomStatus[room] || !roomStatus[room].handed) {
+          const now = new Date();
+          const timeStr = now.toLocaleTimeString([], { hour12: false });
+          if (!roomStatus[room]) roomStatus[room] = {};
+          roomStatus[room].handed = true;
+          roomStatus[room].time = timeStr;
+          updateRoomStatusInDB(roomStatus);
+          updateRoomBtnDisplay(roomBtn, room);
+          if (!isAdminMode) {
+            let utterText = roomStatus[room].voiceText ? roomStatus[room].voiceText
+                           : (room.indexOf("D") !== -1 ? room.replace(/D/g, "豬") + "交車" : room + "交車");
+            const utterance = new SpeechSynthesisUtterance(utterText);
+            utterance.lang = "zh-TW";
+            speechSynthesis.speak(utterance);
+          }
+        } else {
+          if (confirm(room + " 已交車，是否恢復成未交車狀態？")) {
+            roomStatus[room].handed = false;
+            delete roomStatus[room].time;
+            updateRoomStatusInDB(roomStatus);
+            updateRoomBtnDisplay(roomBtn, room);
+          }
+        }
+      };
+
+      // 拖曳事件（拖曳整個 container，以 roomBtn 為觸發目標）
+      roomBtn.addEventListener("dragstart", function(e) {
+        dragSrcEl = container;
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      roomBtn.addEventListener("dragover", function(e) {
+        if (e.preventDefault) e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        return false;
+      });
+      roomBtn.addEventListener("drop", function(e) {
+        if (e.stopPropagation) e.stopPropagation();
+        if (dragSrcEl !== container && dragSrcEl.parentNode === container.parentNode) {
+          const parent = container.parentNode;
+          let children = Array.from(parent.children);
+          let srcIndex = children.indexOf(dragSrcEl);
+          let targetIndex = children.indexOf(container);
+          if (srcIndex < targetIndex) {
+            parent.insertBefore(dragSrcEl, container.nextSibling);
+          } else {
+            parent.insertBefore(dragSrcEl, container);
+          }
+          updateGroups();
+        }
+        return false;
+      });
+
+      // 管理者模式下加入刪除與編輯語音按鈕
+      if (isAdminMode) {
+        const removeBtn = document.createElement("button");
+        removeBtn.className = "remove-btn";
+        removeBtn.textContent = "✖";
+        removeBtn.onclick = (e) => {
+          e.stopPropagation();
+          if (confirm("確定要移除 " + room + " 嗎？")) {
+            removeRoom(room);
+          }
+        };
+        roomBtn.appendChild(removeBtn);
+
+        const editBtn = document.createElement("button");
+        editBtn.className = "edit-btn";
+        editBtn.textContent = "✎";
+        editBtn.onclick = (e) => {
+          e.stopPropagation();
+          let currentVoice = roomStatus[room] && roomStatus[room].voiceText ? roomStatus[room].voiceText : room + "交車";
+          let newVoice = prompt("請輸入自訂語音播放內容：", currentVoice);
+          if (newVoice !== null) {
+            if (!roomStatus[room]) roomStatus[room] = {};
+            roomStatus[room].voiceText = newVoice;
+            updateRoomStatusInDB(roomStatus);
+          }
+        };
+        roomBtn.appendChild(editBtn);
+      }
+      
+      container.appendChild(readyBtn);
+      container.appendChild(roomBtn);
+      return container;
+    }
+
+    function updateReadyBtnDisplay(btn, room) {
+      const status = roomStatus[room];
+      const ready = status && status.ready;
+      if (ready) {
+        btn.textContent = "可交車";
+        btn.style.backgroundColor = "#1E90FF";
+      } else {
+        btn.textContent = "不可交車";
+        btn.style.backgroundColor = "#555";
+      }
+    }
+
+    function updateRoomBtnDisplay(btn, room) {
+      const status = roomStatus[room];
+      if (status && status.handed) {
+        btn.textContent = room + " 已交車 (" + status.time + ")";
+        btn.style.backgroundColor = "#2E8B57";
+      } else {
+        btn.textContent = room + " 未交車";
+        btn.style.backgroundColor = "#808080";
+      }
+    }
+
+    /********** 樓層呈現 **********/
     function renderFloors() {
-      console.log("roomGroups:", roomGroups);
-      console.log("roomStatus:", roomStatus);
-
       const floorRowsDiv = document.getElementById("floorRows");
       floorRowsDiv.innerHTML = "";
-      let groups = roomGroups;
-      if (!groups || Object.keys(groups).length === 0) {
-        groups = getDefaultGroup();
-        updateRoomGroupsInDB(groups);
+      let groups = loadGroups();
+      // 刪除空的樓層
+      for (let floor in groups) {
+        if (!groups[floor] || groups[floor].length === 0) {
+          delete groups[floor];
+        }
       }
-
       let floors = Object.keys(groups).sort((a, b) => Number(a) - Number(b));
       if (floors.length === 0) {
         floorRowsDiv.textContent = "目前沒有病房資料";
         return;
       }
-
+      // 分成上下兩排
       const mid = Math.ceil(floors.length / 2);
       const topFloors = floors.slice(0, mid);
       const bottomFloors = floors.slice(mid);
-
+      
       const topRow = document.createElement("div");
       topRow.className = "floor-row";
       topFloors.forEach(floor => {
         topRow.appendChild(createFloorColumn(floor, groups[floor]));
       });
-
+      
       const bottomRow = document.createElement("div");
       bottomRow.className = "floor-row";
       bottomFloors.forEach(floor => {
         bottomRow.appendChild(createFloorColumn(floor, groups[floor]));
       });
-
+      
       floorRowsDiv.appendChild(topRow);
       floorRowsDiv.appendChild(bottomRow);
     }
@@ -152,41 +438,93 @@
       col.appendChild(header);
       const container = document.createElement("div");
       container.className = "button-container";
+      container.addEventListener("dragover", function(e) {
+        if (e.preventDefault) e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        return false;
+      });
+      container.addEventListener("drop", function(e) {
+        if (e.stopPropagation) e.stopPropagation();
+        if (dragSrcEl && dragSrcEl.parentNode === container) {
+          container.appendChild(dragSrcEl);
+          updateGroups();
+        }
+        return false;
+      });
       rooms.forEach(room => {
-        container.appendChild(createRoomButton(room));
+        container.appendChild(createRoomContainer(room));
       });
       col.appendChild(container);
       return col;
     }
 
-    function createRoomButton(room) {
-      const btn = document.createElement("button");
-      btn.className = "room-btn";
-      btn.textContent = room + " 未交車";
-      btn.onclick = () => {
-        if (!roomStatus[room] || !roomStatus[room].handed) {
-          roomStatus[room] = { handed: true };
-          btn.textContent = room + " 已交車";
-        } else {
-          roomStatus[room].handed = false;
-          btn.textContent = room + " 未交車";
+    /********** 管理者功能 **********/
+    function addRoom(room) {
+      if (!room) return;
+      let groups = loadGroups();
+      const floor = getFloor(room);
+      if (!groups[floor]) groups[floor] = [];
+      if (groups[floor].includes(room)) {
+        alert("該病房已存在！");
+        return;
+      }
+      groups[floor].push(room);
+      // 將更新結果寫入 Gun
+      updateRoomGroupsInDB(groups);
+    }
+    function removeRoom(room) {
+      let groups = loadGroups();
+      const floor = getFloor(room);
+      if (groups[floor]) {
+        groups[floor] = groups[floor].filter(r => r !== room);
+        updateRoomGroupsInDB(groups);
+        if (roomStatus[room]) {
+          delete roomStatus[room];
+          updateRoomStatusInDB(roomStatus);
         }
+      }
+    }
+    function resetAllRooms() {
+      if (confirm("確定將所有病房狀態回復成未交車？")) {
+        roomStatus = {};
         updateRoomStatusInDB(roomStatus);
-      };
-      return btn;
+      }
     }
 
-    function getDefaultGroup() {
-      return {
-        "1": ["1A1"],
-        "3": ["3A1", "3A2"],
-        "4": ["4A1", "4A2"]
-      };
-    }
-
-    setTimeout(() => {
+    /********** 管理者模式切換 **********/
+    const adminToggleBtn = document.getElementById("adminToggle");
+    const adminPanel = document.getElementById("adminPanel");
+    adminToggleBtn.onclick = () => {
+      isAdminMode = !isAdminMode;
+      if (isAdminMode) {
+        adminPanel.style.display = "block";
+        adminToggleBtn.textContent = "關閉管理者模式";
+        document.body.classList.add("admin");
+      } else {
+        adminPanel.style.display = "none";
+        adminToggleBtn.textContent = "管理者模式";
+        document.body.classList.remove("admin");
+      }
       renderFloors();
-    }, 3000);
+    };
+
+    document.getElementById("addRoomBtn").onclick = () => {
+      const newRoom = document.getElementById("newRoom").value.trim();
+      if (newRoom) {
+        addRoom(newRoom);
+        document.getElementById("newRoom").value = "";
+      }
+    };
+
+    document.getElementById("resetAllBtn").onclick = resetAllRooms;
+
+    document.getElementById("autoResetCheckbox").onchange = (e) => {
+      settings.autoResetEnabled = e.target.checked;
+      updateSettingsInDB(settings);
+    };
+
+    /********** 初始渲染 **********/
+    renderFloors();
   </script>
 </body>
 </html>
