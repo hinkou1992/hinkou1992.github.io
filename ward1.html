@@ -292,4 +292,287 @@
       if (!settings.autoResetEnabled) return;
       const today = new Date().toISOString().slice(0,10);
       if (settings.lastResetDate !== today) {
-        // 隔日
+        // 隔日自動重設：清空 roomStatus
+        updateRoomStatusInDB({});
+        settings.lastResetDate = today;
+        updateSettingsInDB(settings);
+      }
+    }
+    
+    /********** 輔助函式 **********/
+    function getFloor(room) {
+      const match = room.match(/^\d+/);
+      return match ? match[0] : "";
+    }
+
+    /********** 產生病房區塊 **********/
+    let dragSrcEl = null;
+    function createRoomContainer(room) {
+      const container = document.createElement("div");
+      container.className = "room-container";
+      container.setAttribute("data-room", room);
+
+      // 左側 ready 按鈕
+      const readyBtn = document.createElement("button");
+      readyBtn.className = "ready-btn";
+      updateReadyBtnDisplay(readyBtn, room);
+      readyBtn.onclick = (e) => {
+        e.stopPropagation();
+        const current = roomStatus[room] && roomStatus[room].ready;
+        if (!roomStatus[room]) {
+          roomStatus[room] = { handed: false, ready: true };
+        } else {
+          roomStatus[room].ready = !current;
+        }
+        updateRoomStatusInDB(roomStatus);
+      };
+
+      // 右側交車按鈕
+      const roomBtn = document.createElement("button");
+      roomBtn.className = "room-btn";
+      roomBtn.setAttribute("draggable", "true");
+      roomBtn.setAttribute("data-room", room);
+      updateRoomBtnDisplay(roomBtn, room);
+      roomBtn.onclick = (e) => {
+        if (e.target.classList.contains("remove-btn") || e.target.classList.contains("edit-btn")) return;
+        if (!roomStatus[room] || !roomStatus[room].handed) {
+          const now = new Date();
+          const timeStr = now.toLocaleTimeString([], { hour12: false });
+          if (!roomStatus[room]) roomStatus[room] = {};
+          roomStatus[room].handed = true;
+          roomStatus[room].time = timeStr;
+          updateRoomStatusInDB(roomStatus);
+          if (!isAdminMode) {
+            let utterText = roomStatus[room].voiceText ? roomStatus[room].voiceText : (room.indexOf("D") !== -1 ? room.replace(/D/g, "豬") + "交車" : room + "交車");
+            const utterance = new SpeechSynthesisUtterance(utterText);
+            utterance.lang = "zh-TW";
+            speechSynthesis.speak(utterance);
+          }
+        } else {
+          if (confirm(room + " 已交車，是否恢復成未交車狀態？")) {
+            roomStatus[room].handed = false;
+            delete roomStatus[room].time;
+            updateRoomStatusInDB(roomStatus);
+          }
+        }
+      };
+
+      // 拖曳事件（拖曳整個 container，以 roomBtn 為觸發目標）
+      roomBtn.addEventListener("dragstart", function(e) {
+        dragSrcEl = container;
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      roomBtn.addEventListener("dragover", function(e) {
+        if (e.preventDefault) e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        return false;
+      });
+      roomBtn.addEventListener("drop", function(e) {
+        if (e.stopPropagation) e.stopPropagation();
+        if (dragSrcEl !== container && dragSrcEl.parentNode === container.parentNode) {
+          const parent = container.parentNode;
+          let children = Array.from(parent.children);
+          let srcIndex = children.indexOf(dragSrcEl);
+          let targetIndex = children.indexOf(container);
+          if (srcIndex < targetIndex) {
+            parent.insertBefore(dragSrcEl, container.nextSibling);
+          } else {
+            parent.insertBefore(dragSrcEl, container);
+          }
+          updateGroups();
+        }
+        return false;
+      });
+
+      // 管理者模式下新增刪除與編輯語音按鈕
+      if (isAdminMode) {
+        const removeBtn = document.createElement("button");
+        removeBtn.className = "remove-btn";
+        removeBtn.textContent = "✖";
+        removeBtn.onclick = (e) => {
+          e.stopPropagation();
+          if (confirm("確定要移除 " + room + " 嗎？")) {
+            removeRoom(room);
+          }
+        };
+        roomBtn.appendChild(removeBtn);
+
+        const editBtn = document.createElement("button");
+        editBtn.className = "edit-btn";
+        editBtn.textContent = "✎";
+        editBtn.onclick = (e) => {
+          e.stopPropagation();
+          let currentVoice = roomStatus[room] && roomStatus[room].voiceText ? roomStatus[room].voiceText : room + "交車";
+          let newVoice = prompt("請輸入自訂語音播放內容：", currentVoice);
+          if (newVoice !== null) {
+            if (!roomStatus[room]) roomStatus[room] = {};
+            roomStatus[room].voiceText = newVoice;
+            updateRoomStatusInDB(roomStatus);
+          }
+        };
+        roomBtn.appendChild(editBtn);
+      }
+      
+      container.appendChild(readyBtn);
+      container.appendChild(roomBtn);
+      return container;
+    }
+
+    function updateReadyBtnDisplay(btn, room) {
+      const status = roomStatus[room];
+      const ready = status && status.ready;
+      if (ready) {
+        btn.textContent = "可交車";
+        btn.style.backgroundColor = "#1E90FF";
+      } else {
+        btn.textContent = "不可交車";
+        btn.style.backgroundColor = "#555";
+      }
+    }
+
+    function updateRoomBtnDisplay(btn, room) {
+      const status = roomStatus[room];
+      if (status && status.handed) {
+        btn.textContent = room + " 已交車 (" + status.time + ")";
+        btn.style.backgroundColor = "#2E8B57";
+      } else {
+        btn.textContent = room + " 未交車";
+        btn.style.backgroundColor = "#808080";
+      }
+    }
+
+    /********** 樓層呈現 **********/
+    function renderFloors() {
+      const floorRowsDiv = document.getElementById("floorRows");
+      floorRowsDiv.innerHTML = "";
+      // roomGroups 來自 Firebase
+      let groups = roomGroups;
+      // 若 groups 為空則使用預設分組
+      if (!groups || Object.keys(groups).length === 0) {
+        groups = getDefaultGroup();
+        updateRoomGroupsInDB(groups);
+      }
+      let floors = Object.keys(groups).sort((a, b) => Number(a) - Number(b));
+      if (floors.length === 0) {
+        floorRowsDiv.textContent = "目前沒有病房資料";
+        return;
+      }
+      // 平均分為上下兩排
+      const mid = Math.ceil(floors.length / 2);
+      const topFloors = floors.slice(0, mid);
+      const bottomFloors = floors.slice(mid);
+      
+      const topRow = document.createElement("div");
+      topRow.className = "floor-row";
+      topFloors.forEach(floor => {
+        topRow.appendChild(createFloorColumn(floor, groups[floor]));
+      });
+      
+      const bottomRow = document.createElement("div");
+      bottomRow.className = "floor-row";
+      bottomFloors.forEach(floor => {
+        bottomRow.appendChild(createFloorColumn(floor, groups[floor]));
+      });
+      
+      floorRowsDiv.appendChild(topRow);
+      floorRowsDiv.appendChild(bottomRow);
+    }
+
+    function createFloorColumn(floor, rooms) {
+      const col = document.createElement("div");
+      col.className = "floor-column";
+      col.setAttribute("data-floor", floor);
+      const header = document.createElement("h2");
+      header.textContent = floor;
+      col.appendChild(header);
+      const container = document.createElement("div");
+      container.className = "button-container";
+      container.addEventListener("dragover", function(e) {
+        if (e.preventDefault) e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        return false;
+      });
+      container.addEventListener("drop", function(e) {
+        if (e.stopPropagation) e.stopPropagation();
+        if (dragSrcEl && dragSrcEl.parentNode === container) {
+          container.appendChild(dragSrcEl);
+          updateGroups();
+        }
+        return false;
+      });
+      rooms.forEach(room => {
+        container.appendChild(createRoomContainer(room));
+      });
+      col.appendChild(container);
+      return col;
+    }
+
+    /********** 管理者功能 **********/
+    function addRoom(room) {
+      if (!room) return;
+      let groups = roomGroups;
+      const floor = getFloor(room);
+      if (!groups[floor]) groups[floor] = [];
+      if (groups[floor].includes(room)) {
+        alert("該病房已存在！");
+        return;
+      }
+      groups[floor].push(room);
+      updateRoomGroupsInDB(groups);
+    }
+    function removeRoom(room) {
+      let groups = roomGroups;
+      const floor = getFloor(room);
+      if (groups[floor]) {
+        groups[floor] = groups[floor].filter(r => r !== room);
+        updateRoomGroupsInDB(groups);
+        if (roomStatus[room]) {
+          delete roomStatus[room];
+          updateRoomStatusInDB(roomStatus);
+        }
+      }
+    }
+    function resetAllRooms() {
+      if (confirm("確定將所有病房狀態回復成未交車？")) {
+        updateRoomStatusInDB({});
+      }
+    }
+
+    /********** 管理者模式切換 **********/
+    const adminToggleBtn = document.getElementById("adminToggle");
+    const adminPanel = document.getElementById("adminPanel");
+    adminToggleBtn.onclick = () => {
+      isAdminMode = !isAdminMode;
+      if (isAdminMode) {
+        adminPanel.style.display = "block";
+        adminToggleBtn.textContent = "關閉管理者模式";
+        document.body.classList.add("admin");
+      } else {
+        adminPanel.style.display = "none";
+        adminToggleBtn.textContent = "管理者模式";
+        document.body.classList.remove("admin");
+      }
+      renderFloors();
+    };
+
+    document.getElementById("addRoomBtn").onclick = () => {
+      const newRoom = document.getElementById("newRoom").value.trim();
+      if (newRoom) {
+        addRoom(newRoom);
+        document.getElementById("newRoom").value = "";
+      }
+    };
+
+    document.getElementById("resetAllBtn").onclick = resetAllRooms;
+
+    // 管理者面板中自動重設複選框事件
+    document.getElementById("autoResetCheckbox").onchange = (e) => {
+      settings.autoResetEnabled = e.target.checked;
+      updateSettingsInDB(settings);
+    };
+
+    /********** 初始渲染 **********/
+    renderFloors();
+  </script>
+</body>
+</html>
