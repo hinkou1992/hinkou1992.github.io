@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>病房交車廣播</title>
+  <title>病房交車廣播 (Gun.js 同步版)</title>
   <style>
     body {
       background-color: black;
@@ -11,7 +11,7 @@
       margin: 0;
       padding: 0;
     }
-    /* 頁首區塊 */
+    /* 頁首 */
     #header {
       display: flex;
       justify-content: space-between;
@@ -57,7 +57,7 @@
       text-align: center;
       margin: 10px 0;
     }
-    /* 兩排樓層容器 */
+    /* 樓層排版 */
     .floor-rows {
       display: flex;
       flex-direction: column;
@@ -86,13 +86,12 @@
       gap: 5px;
       min-height: 50px;
     }
-    /* 房間容器：左側 ready 按鈕、右側交車按鈕 */
+    /* 房間容器：左側 ready 按鈕 / 右側交車按鈕 */
     .room-container {
       display: flex;
       gap: 5px;
       align-items: center;
     }
-    /* 左側 ready 按鈕 */
     .ready-btn {
       padding: 10px;
       font-size: 0.8em;
@@ -101,32 +100,30 @@
       color: white;
       cursor: pointer;
       min-width: 70px;
+      background-color: #555; /* 預設不可交車色 */
     }
     .ready-btn:hover {
       opacity: 0.8;
     }
-    /* 右側交車按鈕 */
     .room-btn {
       flex: 1;
       padding: 10px;
       font-size: 0.9em;
       border: none;
       border-radius: 5px;
-      color: white;
       text-align: left;
       cursor: move;
+      background-color: #808080; /* 未交車灰色 */
       position: relative;
     }
     .room-btn:hover {
       opacity: 0.8;
     }
-    /* 管理模式下的刪除按鈕 */
-    .remove-btn {
+    /* 管理者模式下 */
+    .remove-btn, .edit-btn {
       position: absolute;
-      right: 5px;
       top: 50%;
       transform: translateY(-50%);
-      background-color: red;
       border: none;
       border-radius: 50%;
       width: 20px;
@@ -137,22 +134,13 @@
       font-size: 0.8em;
       display: none;
     }
-    /* 管理模式下的編輯按鈕 */
+    .remove-btn {
+      right: 5px;
+      background-color: red;
+    }
     .edit-btn {
-      position: absolute;
       right: 30px;
-      top: 50%;
-      transform: translateY(-50%);
       background-color: orange;
-      border: none;
-      border-radius: 50%;
-      width: 20px;
-      height: 20px;
-      line-height: 16px;
-      text-align: center;
-      cursor: pointer;
-      font-size: 0.8em;
-      display: none;
     }
     .admin .remove-btn,
     .admin .edit-btn {
@@ -161,14 +149,14 @@
   </style>
 </head>
 <body>
-  <!-- 頁首：左上顯示日期與時間，右上切換管理者模式 -->
+  <!-- 頁首區塊 -->
   <div id="header">
     <div id="datetime"></div>
     <button id="adminToggle">管理者模式</button>
   </div>
-  <!-- 管理者面板：新增病房、重設所有病房、自動重設選項 -->
+  <!-- 管理者面板 -->
   <div id="adminPanel">
-    <label for="newRoom">新增病房（請輸入完整房號，如 2B1）：</label>
+    <label for="newRoom">新增病房（例如：2B1）：</label>
     <input type="text" id="newRoom" placeholder="例如：2B1">
     <button id="addRoomBtn">新增病房</button>
     <button id="resetAllBtn">重設所有病房</button>
@@ -180,73 +168,53 @@
   </div>
 
   <h1>病房交車廣播</h1>
+  <!-- 病房呈現區 -->
+  <div class="floor-rows" id="floorRows"></div>
 
-  <!-- 病房區塊，分成上下兩排 -->
-  <div class="floor-rows" id="floorRows">
-    <!-- 樓層欄位會由 JavaScript 動態生成 -->
-  </div>
+  <!-- 引入 Gun.js -->
+  <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+  <script>
+    /********** Gun.js 初始化 **********/
+    const gun = Gun();
+    // 使用三個節點同步：roomStatus, roomGroups, settings
+    const gunRoomStatus = gun.get('roomStatus');
+    const gunRoomGroups = gun.get('roomGroups');
+    const gunSettings = gun.get('settings');
 
-  <!-- 使用 ES6 模組引入 Firebase SDK 與 Realtime Database -->
-  <script type="module">
-    // 引入 Firebase SDK 模組
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
-    import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
-    import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-database.js";
+    /********** 全域同步變數 **********/
+    let roomStatus = {};    // 格式 { "1A1": { handed: true, time: "14:30:00", ready: true, voiceText: "..." }, ... }
+    let roomGroups = {};    // 格式 { "1": ["1A1", ...], "3": [...], ... }
+    let settings = { autoResetEnabled: false, lastResetDate: "" };
 
-    // Firebase 設定
-    const firebaseConfig = {
-      apiKey: "AIzaSyBR0j6SN0_C2I_UJjgF_AyspTKituMAlaU",
-      authDomain: "ward-8832a.firebaseapp.com",
-      projectId: "ward-8832a",
-      storageBucket: "ward-8832a.firebasestorage.app",
-      messagingSenderId: "516288590480",
-      appId: "1:516288590480:web:20e1ee048bf2342c381e15",
-      measurementId: "G-YHW57G4J7B"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const analytics = getAnalytics(app);
-    const db = getDatabase(app);
-
-    /********** Firebase 同步區 **********/
-    // 參考節點：roomStatus, roomGroups, settings
-    const roomStatusRef = ref(db, 'roomStatus');
-    const roomGroupsRef = ref(db, 'roomGroups');
-    const settingsRef = ref(db, 'settings');
-
-    // 全域變數：房間狀態、房間排序、設定
-    let roomStatus = {};
-    let roomGroups = {};
-    let settings = {};
-
-    // 監聽 Firebase 中 roomStatus、roomGroups、settings 變化
-    onValue(roomStatusRef, (snapshot) => {
-      roomStatus = snapshot.val() || {};
-      renderFloors();
-    });
-    onValue(roomGroupsRef, (snapshot) => {
-      roomGroups = snapshot.val() || getDefaultGroup();
-      renderFloors();
-    });
-    onValue(settingsRef, (snapshot) => {
-      settings = snapshot.val() || { autoResetEnabled: false, lastResetDate: "" };
+    // 監聽 Gun 節點更新，更新全域變數並重新渲染
+    gunRoomStatus.on(data => { roomStatus = data || {}; renderFloors(); });
+    gunRoomGroups.on(data => { roomGroups = data || getDefaultGroup(); renderFloors(); });
+    gunSettings.on(data => {
+      settings = data || { autoResetEnabled: false, lastResetDate: "" };
       document.getElementById("autoResetCheckbox").checked = settings.autoResetEnabled;
       checkAutoReset();
     });
 
-    // 更新 Firebase 中的資料
+    // 更新 Gun 節點資料
     function updateRoomStatusInDB(newStatus) {
-      set(roomStatusRef, newStatus);
+      gunRoomStatus.put(newStatus);
     }
     function updateRoomGroupsInDB(newGroups) {
-      set(roomGroupsRef, newGroups);
+      gunRoomGroups.put(newGroups);
     }
     function updateSettingsInDB(newSettings) {
-      set(settingsRef, newSettings);
+      gunSettings.put(newSettings);
     }
 
-    /********** 其他設定 **********/
-    let isAdminMode = false;
+    /********** 日期與時間 **********/
+    function updateDateTime() {
+      const now = new Date();
+      document.getElementById("datetime").textContent = now.toLocaleString();
+    }
+    updateDateTime();
+    setInterval(updateDateTime, 1000);
+
+    /********** 預設房間資料與分組 **********/
     const defaultRooms = [
       "1A1",
       "3A1", "3A2", "3B1", "3B2", "3C1", "3C2",
@@ -262,7 +230,12 @@
       "14A", "14B", "14C", "14D",
       "15A", "15B", "15C"
     ];
-    // 若 roomGroups 尚未設定，則以預設房間依樓層分組
+    // 以房號開頭數字分樓層
+    function getFloor(room) {
+      const match = room.match(/^\d+/);
+      return match ? match[0] : "";
+    }
+    // 預設分組
     function getDefaultGroup() {
       const groups = {};
       defaultRooms.forEach(room => {
@@ -273,40 +246,21 @@
       return groups;
     }
 
-    // 當操作房間排序時，更新 Firebase roomGroups
-    function updateGroups() {
-      const groups = {};
-      document.querySelectorAll(".floor-column").forEach(col => {
-        const floor = col.getAttribute("data-floor");
-        const container = col.querySelector(".button-container");
-        const rooms = Array.from(container.children).map(div => div.getAttribute("data-room"));
-        if (rooms.length > 0) {
-          groups[floor] = rooms;
-        }
-      });
-      updateRoomGroupsInDB(groups);
-    }
-
     /********** 自動重設設定 **********/
     function checkAutoReset() {
       if (!settings.autoResetEnabled) return;
       const today = new Date().toISOString().slice(0,10);
       if (settings.lastResetDate !== today) {
-        // 隔日自動重設：清空 roomStatus
         updateRoomStatusInDB({});
         settings.lastResetDate = today;
         updateSettingsInDB(settings);
       }
     }
-    
-    /********** 輔助函式 **********/
-    function getFloor(room) {
-      const match = room.match(/^\d+/);
-      return match ? match[0] : "";
-    }
+    checkAutoReset();
 
     /********** 產生病房區塊 **********/
     let dragSrcEl = null;
+    // 建立房間容器（包含左側 ready 按鈕與右側交車按鈕，管理者模式下可編輯語音內容）
     function createRoomContainer(room) {
       const container = document.createElement("div");
       container.className = "room-container";
@@ -343,7 +297,8 @@
           roomStatus[room].time = timeStr;
           updateRoomStatusInDB(roomStatus);
           if (!isAdminMode) {
-            let utterText = roomStatus[room].voiceText ? roomStatus[room].voiceText : (room.indexOf("D") !== -1 ? room.replace(/D/g, "豬") + "交車" : room + "交車");
+            let utterText = roomStatus[room].voiceText ? roomStatus[room].voiceText 
+                           : (room.indexOf("D") !== -1 ? room.replace(/D/g, "豬") + "交車" : room + "交車");
             const utterance = new SpeechSynthesisUtterance(utterText);
             utterance.lang = "zh-TW";
             speechSynthesis.speak(utterance);
@@ -357,7 +312,7 @@
         }
       };
 
-      // 拖曳事件（拖曳整個 container，以 roomBtn 為觸發目標）
+      // 拖曳事件：拖曳整個 container（以 roomBtn 為觸發目標）
       roomBtn.addEventListener("dragstart", function(e) {
         dragSrcEl = container;
         e.dataTransfer.effectAllowed = 'move';
@@ -384,7 +339,7 @@
         return false;
       });
 
-      // 管理者模式下新增刪除與編輯語音按鈕
+      // 管理者模式下加入刪除與編輯語音按鈕
       if (isAdminMode) {
         const removeBtn = document.createElement("button");
         removeBtn.className = "remove-btn";
@@ -445,9 +400,8 @@
     function renderFloors() {
       const floorRowsDiv = document.getElementById("floorRows");
       floorRowsDiv.innerHTML = "";
-      // roomGroups 來自 Firebase
+      // roomGroups 來自 Gun，同步房間排序
       let groups = roomGroups;
-      // 若 groups 為空則使用預設分組
       if (!groups || Object.keys(groups).length === 0) {
         groups = getDefaultGroup();
         updateRoomGroupsInDB(groups);
@@ -457,7 +411,7 @@
         floorRowsDiv.textContent = "目前沒有病房資料";
         return;
       }
-      // 平均分為上下兩排
+      // 分上下兩排
       const mid = Math.ceil(floors.length / 2);
       const topFloors = floors.slice(0, mid);
       const bottomFloors = floors.slice(mid);
@@ -565,7 +519,6 @@
 
     document.getElementById("resetAllBtn").onclick = resetAllRooms;
 
-    // 管理者面板中自動重設複選框事件
     document.getElementById("autoResetCheckbox").onchange = (e) => {
       settings.autoResetEnabled = e.target.checked;
       updateSettingsInDB(settings);
