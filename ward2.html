@@ -87,7 +87,7 @@
       gap: 5px;
       min-height: 50px;
     }
-    /* 房間容器：左側 ready 按鈕 / 右側交車按鈕 */
+    /* 房間容器 */
     .room-container {
       display: flex;
       gap: 5px;
@@ -120,7 +120,7 @@
     .room-btn:hover {
       opacity: 0.8;
     }
-    /* 管理者模式下的按鈕（刪除與編輯語音） */
+    /* 管理者模式下的按鈕 */
     .remove-btn, .edit-btn {
       position: absolute;
       top: 50%;
@@ -150,12 +150,12 @@
   </style>
 </head>
 <body>
-  <!-- 頁首：左上顯示日期時間，右上切換管理者模式 -->
+  <!-- 頁首 -->
   <div id="header">
     <div id="datetime"></div>
     <button id="adminToggle">管理者模式</button>
   </div>
-  <!-- 管理者面板：新增病房、重設所有病房、自動重設、語音選擇 -->
+  <!-- 管理者面板 -->
   <div id="adminPanel">
     <label for="newRoom">新增病房（例如：2B1）：</label>
     <input type="text" id="newRoom" placeholder="例如：2B1">
@@ -169,10 +169,16 @@
     <br><br>
     <label for="voiceSelector">選擇語音輸出：</label>
     <select id="voiceSelector"></select>
+    <br><br>
+    <label for="audioOutputSelect">選擇音頻輸出裝置：</label>
+    <select id="audioOutputSelect"></select>
   </div>
   <h1>病房交車廣播</h1>
   <!-- 病房呈現區 -->
   <div class="floor-rows" id="floorRows"></div>
+
+  <!-- 隱藏的 Audio 元素 (用來示範 setSinkId) -->
+  <audio id="audioPlayer" style="display:none;"></audio>
 
   <script>
     /********** 日期與時間 **********/
@@ -225,12 +231,10 @@
       "14A", "14B", "14C", "14D",
       "15A", "15B", "15C"
     ];
-    // 取房號前數字作為樓層
     function getFloor(room) {
       const match = room.match(/^\d+/);
       return match ? match[0] : "";
     }
-    // 預設分組：依樓層分組
     function getDefaultGroup() {
       const groups = {};
       defaultRooms.forEach(room => {
@@ -240,22 +244,24 @@
       });
       return groups;
     }
-    // 若 roomGroups 為空則初始化
     if (Object.keys(roomGroups).length === 0) {
       roomGroups = getDefaultGroup();
       updateRoomGroups(roomGroups);
     }
-    // loadGroups 函式回傳 roomGroups
-    function loadGroups() {
-      return roomGroups;
-    }
+    function loadGroups() { return roomGroups; }
 
     /********** 自動重設設定 **********/
     function checkAutoReset() {
       if (!settings.autoResetEnabled) return;
       const today = new Date().toISOString().slice(0,10);
       if (settings.lastResetDate !== today) {
-        roomStatus = {};
+        // 重設時僅清除 handed 與 time，不刪除 voiceText
+        for (let room in roomStatus) {
+          if (roomStatus[room]) {
+            roomStatus[room].handed = false;
+            delete roomStatus[room].time;
+          }
+        }
         updateRoomStatus(roomStatus);
         settings.lastResetDate = today;
         updateSettings(settings);
@@ -279,6 +285,26 @@
     }
     window.speechSynthesis.onvoiceschanged = populateVoices;
     populateVoices();
+
+    /********** 音頻輸出裝置選擇功能 **********/
+    function populateAudioOutputs() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+      navigator.mediaDevices.enumerateDevices().then(devices => {
+        const audioOutputs = devices.filter(device => device.kind === 'audiooutput');
+        const outputSelect = document.getElementById("audioOutputSelect");
+        if (!outputSelect) return;
+        outputSelect.innerHTML = "";
+        audioOutputs.forEach((device, index) => {
+          const option = document.createElement("option");
+          option.value = device.deviceId;
+          option.textContent = device.label || `輸出裝置 ${index+1}`;
+          outputSelect.appendChild(option);
+        });
+      }).catch(err => {
+        console.error("Error enumerating devices:", err);
+      });
+    }
+    populateAudioOutputs();
 
     /********** 產生病房區塊 **********/
     let dragSrcEl = null;
@@ -308,7 +334,13 @@
       roomBtn.className = "room-btn";
       roomBtn.setAttribute("draggable", "true");
       roomBtn.setAttribute("data-room", room);
+
+      // 新增一個 span 保存房間顯示文字，避免覆蓋刪除與編輯圖示
+      const roomLabel = document.createElement("span");
+      roomLabel.className = "room-label";
+      roomBtn.appendChild(roomLabel);
       updateRoomBtnDisplay(roomBtn, room);
+
       roomBtn.onclick = (e) => {
         if (e.target.classList.contains("remove-btn") || e.target.classList.contains("edit-btn")) return;
         if (!roomStatus[room] || !roomStatus[room].handed) {
@@ -324,6 +356,7 @@
                            : (room.indexOf("D") !== -1 ? room.replace(/D/g, "豬") + "交車" : room + "交車");
             const utterance = new SpeechSynthesisUtterance(utterText);
             utterance.lang = "zh-TW";
+            // 設定語音選擇
             const voiceSelector = document.getElementById("voiceSelector");
             if (voiceSelector) {
               const voices = speechSynthesis.getVoices();
@@ -332,7 +365,19 @@
                 utterance.voice = voices[selectedIndex];
               }
             }
-            speechSynthesis.speak(utterance);
+            // 使用 Audio 元素指定音頻輸出裝置（如果支援）
+            const audioOutputSelect = document.getElementById("audioOutputSelect");
+            const audioElem = document.getElementById("audioPlayer");
+            if (audioOutputSelect && audioElem && typeof audioElem.setSinkId === 'function') {
+              audioElem.setSinkId(audioOutputSelect.value).then(() => {
+                speechSynthesis.speak(utterance);
+              }).catch(err => {
+                console.error("Error setting audio output device:", err);
+                speechSynthesis.speak(utterance);
+              });
+            } else {
+              speechSynthesis.speak(utterance);
+            }
           }
         } else {
           if (confirm(room + " 已交車，是否恢復成未交車狀態？")) {
@@ -417,14 +462,21 @@
       }
     }
 
+    // 修改 updateRoomBtnDisplay 只更新內部 room-label 的內容
     function updateRoomBtnDisplay(btn, room) {
       const status = roomStatus[room];
+      let text = "";
       if (status && status.handed) {
-        btn.textContent = room + " 已交車 (" + status.time + ")";
+        text = room + " 已交車 (" + status.time + ")";
         btn.style.backgroundColor = "#2E8B57";
       } else {
-        btn.textContent = room + " 未交車";
+        text = room + " 未交車";
         btn.style.backgroundColor = "#808080";
+      }
+      // 更新位於按鈕內的 .room-label
+      const labelSpan = btn.querySelector(".room-label");
+      if (labelSpan) {
+        labelSpan.textContent = text;
       }
     }
 
@@ -521,7 +573,13 @@
     }
     function resetAllRooms() {
       if (confirm("確定將所有病房狀態回復成未交車？")) {
-        roomStatus = {};
+        // 只重設 handed 與 time，不刪除 voiceText
+        for (let room in roomStatus) {
+          if (roomStatus[room]) {
+            roomStatus[room].handed = false;
+            delete roomStatus[room].time;
+          }
+        }
         updateRoomStatus(roomStatus);
         renderFloors();
       }
