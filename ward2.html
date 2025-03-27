@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<!-- saved from url=(0093)file:///C:/Users/hinko/Desktop/%E7%97%85%E6%88%BF%E4%BA%A4%E8%BB%8A%E5%BB%A3%E6%92%AD%20.html -->
-<html lang="zh-TW"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-  
-  <title>病房交車廣播</title>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>病房交車廣播 (LocalStorage版)</title>
   <style>
     body {
       background-color: black;
@@ -36,7 +36,8 @@
       background-color: #444;
       display: none;
     }
-    #adminPanel input[type="text"] {
+    #adminPanel input[type="text"],
+    #adminPanel select {
       padding: 5px;
       border: none;
       border-radius: 3px;
@@ -57,7 +58,7 @@
       text-align: center;
       margin: 10px 0;
     }
-    /* 兩排樓層容器 */
+    /* 樓層排版 */
     .floor-rows {
       display: flex;
       flex-direction: column;
@@ -86,13 +87,12 @@
       gap: 5px;
       min-height: 50px;
     }
-    /* 包含交車與狀態按鈕的容器 */
+    /* 房間容器：左側 ready 按鈕 / 右側交車按鈕 */
     .room-container {
       display: flex;
       gap: 5px;
       align-items: center;
     }
-    /* 左側顯示交車狀態的按鈕 */
     .ready-btn {
       padding: 10px;
       font-size: 0.8em;
@@ -101,32 +101,30 @@
       color: white;
       cursor: pointer;
       min-width: 70px;
+      background-color: #555; /* 預設不可交車色 */
     }
     .ready-btn:hover {
       opacity: 0.8;
     }
-    /* 右側交車按鈕 */
     .room-btn {
       flex: 1;
       padding: 10px;
       font-size: 0.9em;
       border: none;
       border-radius: 5px;
-      color: white;
       text-align: left;
       cursor: move;
+      background-color: #808080; /* 未交車灰色 */
       position: relative;
     }
     .room-btn:hover {
       opacity: 0.8;
     }
-    /* 管理模式下的刪除按鈕 */
-    .remove-btn {
+    /* 管理者模式下的按鈕（刪除與編輯語音） */
+    .remove-btn, .edit-btn {
       position: absolute;
-      right: 5px;
       top: 50%;
       transform: translateY(-50%);
-      background-color: red;
       border: none;
       border-radius: 50%;
       width: 20px;
@@ -137,22 +135,13 @@
       font-size: 0.8em;
       display: none;
     }
-    /* 管理模式下的編輯按鈕 */
+    .remove-btn {
+      right: 5px;
+      background-color: red;
+    }
     .edit-btn {
-      position: absolute;
       right: 30px;
-      top: 50%;
-      transform: translateY(-50%);
       background-color: orange;
-      border: none;
-      border-radius: 50%;
-      width: 20px;
-      height: 20px;
-      line-height: 16px;
-      text-align: center;
-      cursor: pointer;
-      font-size: 0.8em;
-      display: none;
     }
     .admin .remove-btn,
     .admin .edit-btn {
@@ -163,12 +152,12 @@
 <body>
   <!-- 頁首：左上顯示日期時間，右上切換管理者模式 -->
   <div id="header">
-    <div id="datetime">2025/3/27 上午12:03:26</div>
+    <div id="datetime"></div>
     <button id="adminToggle">管理者模式</button>
   </div>
-  <!-- 管理者面板：包含新增病房、重設所有病房及自動重設選項 -->
+  <!-- 管理者面板：新增病房、重設所有病房、自動重設、語音選擇 -->
   <div id="adminPanel">
-    <label for="newRoom">新增病房（請輸入完整房號，如 2B1）：</label>
+    <label for="newRoom">新增病房（例如：2B1）：</label>
     <input type="text" id="newRoom" placeholder="例如：2B1">
     <button id="addRoomBtn">新增病房</button>
     <button id="resetAllBtn">重設所有病房</button>
@@ -177,24 +166,50 @@
       <input type="checkbox" id="autoResetCheckbox">
       隔日自動回復所有病房狀態
     </label>
+    <br><br>
+    <label for="voiceSelector">選擇語音輸出：</label>
+    <select id="voiceSelector"></select>
   </div>
-
   <h1>病房交車廣播</h1>
-
-  <!-- 病房區塊，分成上下兩排 -->
-  <div class="floor-rows" id="floorRows"><div class="floor-row"><div class="floor-column" data-floor="1"><h2>1</h2><div class="button-container"><div class="room-container" data-room="1A1"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="1A1" style="background-color: rgb(128, 128, 128);">1A1 未交車</button></div></div></div><div class="floor-column" data-floor="3"><h2>3</h2><div class="button-container"><div class="room-container" data-room="3A1"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="3A1" style="background-color: rgb(128, 128, 128);">3A1 未交車</button></div><div class="room-container" data-room="3A2"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="3A2" style="background-color: rgb(128, 128, 128);">3A2 未交車</button></div><div class="room-container" data-room="3B1"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="3B1" style="background-color: rgb(128, 128, 128);">3B1 未交車</button></div><div class="room-container" data-room="3B2"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="3B2" style="background-color: rgb(128, 128, 128);">3B2 未交車</button></div><div class="room-container" data-room="3C1"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="3C1" style="background-color: rgb(128, 128, 128);">3C1 未交車</button></div><div class="room-container" data-room="3C2"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="3C2" style="background-color: rgb(128, 128, 128);">3C2 未交車</button></div></div></div><div class="floor-column" data-floor="4"><h2>4</h2><div class="button-container"><div class="room-container" data-room="4A1"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="4A1" style="background-color: rgb(128, 128, 128);">4A1 未交車</button></div><div class="room-container" data-room="4A2"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="4A2" style="background-color: rgb(128, 128, 128);">4A2 未交車</button></div><div class="room-container" data-room="4B1"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="4B1" style="background-color: rgb(128, 128, 128);">4B1 未交車</button></div><div class="room-container" data-room="4B2"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="4B2" style="background-color: rgb(128, 128, 128);">4B2 未交車</button></div><div class="room-container" data-room="4C1"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="4C1" style="background-color: rgb(128, 128, 128);">4C1 未交車</button></div><div class="room-container" data-room="4C2"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="4C2" style="background-color: rgb(128, 128, 128);">4C2 未交車</button></div><div class="room-container" data-room="4D1"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="4D1" style="background-color: rgb(128, 128, 128);">4D1 未交車</button></div></div></div><div class="floor-column" data-floor="5"><h2>5</h2><div class="button-container"><div class="room-container" data-room="5A"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="5A" style="background-color: rgb(128, 128, 128);">5A 未交車</button></div><div class="room-container" data-room="5B"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="5B" style="background-color: rgb(128, 128, 128);">5B 未交車</button></div><div class="room-container" data-room="5C"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="5C" style="background-color: rgb(128, 128, 128);">5C 未交車</button></div><div class="room-container" data-room="5D"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="5D" style="background-color: rgb(128, 128, 128);">5D 未交車</button></div><div class="room-container" data-room="5CVIA"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="5CVIA" style="background-color: rgb(128, 128, 128);">5CVIA 未交車</button></div><div class="room-container" data-room="5CVIB"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="5CVIB" style="background-color: rgb(128, 128, 128);">5CVIB 未交車</button></div></div></div><div class="floor-column" data-floor="6"><h2>6</h2><div class="button-container"><div class="room-container" data-room="6A"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="6A" style="background-color: rgb(128, 128, 128);">6A 未交車</button></div><div class="room-container" data-room="6B"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="6B" style="background-color: rgb(128, 128, 128);">6B 未交車</button></div><div class="room-container" data-room="6C"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="6C" style="background-color: rgb(128, 128, 128);">6C 未交車</button></div><div class="room-container" data-room="6D"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="6D" style="background-color: rgb(128, 128, 128);">6D 未交車</button></div></div></div><div class="floor-column" data-floor="7"><h2>7</h2><div class="button-container"><div class="room-container" data-room="7A"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="7A" style="background-color: rgb(128, 128, 128);">7A 未交車</button></div><div class="room-container" data-room="7B"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="7B" style="background-color: rgb(128, 128, 128);">7B 未交車</button></div><div class="room-container" data-room="7C"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="7C" style="background-color: rgb(128, 128, 128);">7C 未交車</button></div><div class="room-container" data-room="7D"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="7D" style="background-color: rgb(128, 128, 128);">7D 未交車</button></div></div></div><div class="floor-column" data-floor="8"><h2>8</h2><div class="button-container"><div class="room-container" data-room="8A"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="8A" style="background-color: rgb(128, 128, 128);">8A 未交車</button></div><div class="room-container" data-room="8B"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="8B" style="background-color: rgb(128, 128, 128);">8B 未交車</button></div><div class="room-container" data-room="8C"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="8C" style="background-color: rgb(128, 128, 128);">8C 未交車</button></div><div class="room-container" data-room="8D"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="8D" style="background-color: rgb(128, 128, 128);">8D 未交車</button></div></div></div></div><div class="floor-row"><div class="floor-column" data-floor="9"><h2>9</h2><div class="button-container"><div class="room-container" data-room="9A"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="9A" style="background-color: rgb(128, 128, 128);">9A 未交車</button></div><div class="room-container" data-room="9B"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="9B" style="background-color: rgb(128, 128, 128);">9B 未交車</button></div><div class="room-container" data-room="9C"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="9C" style="background-color: rgb(128, 128, 128);">9C 未交車</button></div><div class="room-container" data-room="9D"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="9D" style="background-color: rgb(128, 128, 128);">9D 未交車</button></div></div></div><div class="floor-column" data-floor="11"><h2>11</h2><div class="button-container"><div class="room-container" data-room="11A"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="11A" style="background-color: rgb(128, 128, 128);">11A 未交車</button></div><div class="room-container" data-room="11B"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="11B" style="background-color: rgb(128, 128, 128);">11B 未交車</button></div><div class="room-container" data-room="11C"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="11C" style="background-color: rgb(128, 128, 128);">11C 未交車</button></div><div class="room-container" data-room="11D"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="11D" style="background-color: rgb(128, 128, 128);">11D 未交車</button></div></div></div><div class="floor-column" data-floor="12"><h2>12</h2><div class="button-container"><div class="room-container" data-room="12A"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="12A" style="background-color: rgb(128, 128, 128);">12A 未交車</button></div><div class="room-container" data-room="12B"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="12B" style="background-color: rgb(128, 128, 128);">12B 未交車</button></div><div class="room-container" data-room="12C"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="12C" style="background-color: rgb(128, 128, 128);">12C 未交車</button></div><div class="room-container" data-room="12D"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="12D" style="background-color: rgb(128, 128, 128);">12D 未交車</button></div></div></div><div class="floor-column" data-floor="13"><h2>13</h2><div class="button-container"><div class="room-container" data-room="13A"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="13A" style="background-color: rgb(128, 128, 128);">13A 未交車</button></div><div class="room-container" data-room="13B"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="13B" style="background-color: rgb(128, 128, 128);">13B 未交車</button></div><div class="room-container" data-room="13C"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="13C" style="background-color: rgb(128, 128, 128);">13C 未交車</button></div><div class="room-container" data-room="13D"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="13D" style="background-color: rgb(128, 128, 128);">13D 未交車</button></div></div></div><div class="floor-column" data-floor="14"><h2>14</h2><div class="button-container"><div class="room-container" data-room="14A"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="14A" style="background-color: rgb(128, 128, 128);">14A 未交車</button></div><div class="room-container" data-room="14B"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="14B" style="background-color: rgb(128, 128, 128);">14B 未交車</button></div><div class="room-container" data-room="14C"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="14C" style="background-color: rgb(128, 128, 128);">14C 未交車</button></div><div class="room-container" data-room="14D"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="14D" style="background-color: rgb(128, 128, 128);">14D 未交車</button></div></div></div><div class="floor-column" data-floor="15"><h2>15</h2><div class="button-container"><div class="room-container" data-room="15A"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="15A" style="background-color: rgb(128, 128, 128);">15A 未交車</button></div><div class="room-container" data-room="15B"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="15B" style="background-color: rgb(128, 128, 128);">15B 未交車</button></div><div class="room-container" data-room="15C"><button class="ready-btn" style="background-color: rgb(85, 85, 85);">不可交車</button><button class="room-btn" draggable="true" data-room="15C" style="background-color: rgb(128, 128, 128);">15C 未交車</button></div></div></div></div></div>
+  <!-- 病房呈現區 -->
+  <div class="floor-rows" id="floorRows"></div>
 
   <script>
     /********** 日期與時間 **********/
     function updateDateTime() {
-      const dtElem = document.getElementById("datetime");
       const now = new Date();
-      dtElem.textContent = now.toLocaleString();
+      document.getElementById("datetime").textContent = now.toLocaleString();
     }
     updateDateTime();
     setInterval(updateDateTime, 1000);
 
-    /********** 初始病房資料 **********/
+    /********** 儲存與讀取 (localStorage) **********/
+    function loadRoomStatus() {
+      return JSON.parse(localStorage.getItem("roomStatus") || "{}");
+    }
+    function updateRoomStatus(newStatus) {
+      localStorage.setItem("roomStatus", JSON.stringify(newStatus));
+    }
+    function loadRoomGroups() {
+      return JSON.parse(localStorage.getItem("roomGroups") || "{}");
+    }
+    function updateRoomGroups(newGroups) {
+      localStorage.setItem("roomGroups", JSON.stringify(newGroups));
+    }
+    function loadSettings() {
+      return JSON.parse(localStorage.getItem("settings") || '{"autoResetEnabled": false, "lastResetDate": ""}');
+    }
+    function updateSettings(newSettings) {
+      localStorage.setItem("settings", JSON.stringify(newSettings));
+    }
+
+    /********** 全域變數 **********/
+    let isAdminMode = false;
+    let roomStatus = loadRoomStatus();
+    let roomGroups = loadRoomGroups();
+    let settings = loadSettings();
+
+    /********** 預設病房資料 **********/
     const defaultRooms = [
       "1A1",
       "3A1", "3A2", "3B1", "3B2", "3C1", "3C2",
@@ -210,10 +225,12 @@
       "14A", "14B", "14C", "14D",
       "15A", "15B", "15C"
     ];
-
-    /********** 全域變數 **********/
-    let isAdminMode = false;
-    // roomGroups：存放各樓層病房順序（鍵：樓層，值：陣列）
+    // 取房號前數字作為樓層
+    function getFloor(room) {
+      const match = room.match(/^\d+/);
+      return match ? match[0] : "";
+    }
+    // 預設分組：依樓層分組
     function getDefaultGroup() {
       const groups = {};
       defaultRooms.forEach(room => {
@@ -223,63 +240,48 @@
       });
       return groups;
     }
+    // 若 roomGroups 為空則初始化
+    if (Object.keys(roomGroups).length === 0) {
+      roomGroups = getDefaultGroup();
+      updateRoomGroups(roomGroups);
+    }
+    // loadGroups 函式回傳 roomGroups
     function loadGroups() {
-      const saved = localStorage.getItem("roomGroups");
-      return saved ? JSON.parse(saved) : getDefaultGroup();
-    }
-    function updateGroups() {
-      const groups = {};
-      document.querySelectorAll(".floor-column").forEach(col => {
-        const floor = col.getAttribute("data-floor");
-        const container = col.querySelector(".button-container");
-        const rooms = Array.from(container.children).map(div => div.getAttribute("data-room"));
-        if (rooms.length > 0) {  // 僅保存有病房的樓層
-          groups[floor] = rooms;
-        }
-      });
-      localStorage.setItem("roomGroups", JSON.stringify(groups));
-    }
-
-    // roomStatus：存放各病房狀態、交車時間、是否可交車及自定義語音播放內容
-    // 格式：{ room: { handed: true, time: "xx:xx:xx", ready: true/false, voiceText: "..." } }
-    let roomStatus = loadRoomStatus();
-    function loadRoomStatus() {
-      const saved = localStorage.getItem("roomStatus");
-      return saved ? JSON.parse(saved) : {};
-    }
-    function updateRoomStatus() {
-      localStorage.setItem("roomStatus", JSON.stringify(roomStatus));
+      return roomGroups;
     }
 
     /********** 自動重設設定 **********/
-    // autoResetEnabled 儲存在 localStorage，預設 false
-    let autoResetEnabled = localStorage.getItem("autoResetEnabled") === "true";
-    document.getElementById("autoResetCheckbox").checked = autoResetEnabled;
-    // 檢查上次重設日期，若非今日且啟用自動重設，則重設所有狀態
     function checkAutoReset() {
-      if (!autoResetEnabled) return;
+      if (!settings.autoResetEnabled) return;
       const today = new Date().toISOString().slice(0,10);
-      const lastReset = localStorage.getItem("lastResetDate");
-      if (lastReset !== today) {
-        // 隔日自動重設：回復所有病房狀態
+      if (settings.lastResetDate !== today) {
         roomStatus = {};
-        updateRoomStatus();
-        localStorage.setItem("lastResetDate", today);
+        updateRoomStatus(roomStatus);
+        settings.lastResetDate = today;
+        updateSettings(settings);
         renderFloors();
       }
     }
     checkAutoReset();
 
-    /********** 輔助函式 **********/
-    // 根據房號字串前數字決定樓層
-    function getFloor(room) {
-      const match = room.match(/^\d+/);
-      return match ? match[0] : "";
+    /********** 語音選擇功能 **********/
+    function populateVoices() {
+      const voices = speechSynthesis.getVoices();
+      const voiceSelector = document.getElementById("voiceSelector");
+      if (!voiceSelector) return;
+      voiceSelector.innerHTML = "";
+      voices.forEach((voice, index) => {
+        const option = document.createElement("option");
+        option.value = index;
+        option.textContent = `${voice.name} (${voice.lang})`;
+        voiceSelector.appendChild(option);
+      });
     }
+    window.speechSynthesis.onvoiceschanged = populateVoices;
+    populateVoices();
 
     /********** 產生病房區塊 **********/
     let dragSrcEl = null;
-    // 建立包含左側 ready 按鈕與右側交車按鈕的容器
     function createRoomContainer(room) {
       const container = document.createElement("div");
       container.className = "room-container";
@@ -297,7 +299,7 @@
         } else {
           roomStatus[room].ready = !current;
         }
-        updateRoomStatus();
+        updateRoomStatus(roomStatus);
         updateReadyBtnDisplay(readyBtn, room);
       };
 
@@ -315,26 +317,34 @@
           if (!roomStatus[room]) roomStatus[room] = {};
           roomStatus[room].handed = true;
           roomStatus[room].time = timeStr;
-          updateRoomStatus();
+          updateRoomStatus(roomStatus);
           updateRoomBtnDisplay(roomBtn, room);
-          // 非管理模式下播放語音（若有自訂內容則使用自訂內容）
           if (!isAdminMode) {
-            let utterText = roomStatus[room].voiceText ? roomStatus[room].voiceText : (room.indexOf("D") !== -1 ? room.replace(/D/g, "豬") + "交車" : room + "交車");
+            let utterText = roomStatus[room].voiceText ? roomStatus[room].voiceText 
+                           : (room.indexOf("D") !== -1 ? room.replace(/D/g, "豬") + "交車" : room + "交車");
             const utterance = new SpeechSynthesisUtterance(utterText);
             utterance.lang = "zh-TW";
+            const voiceSelector = document.getElementById("voiceSelector");
+            if (voiceSelector) {
+              const voices = speechSynthesis.getVoices();
+              const selectedIndex = voiceSelector.value;
+              if (voices[selectedIndex]) {
+                utterance.voice = voices[selectedIndex];
+              }
+            }
             speechSynthesis.speak(utterance);
           }
         } else {
           if (confirm(room + " 已交車，是否恢復成未交車狀態？")) {
             roomStatus[room].handed = false;
             delete roomStatus[room].time;
-            updateRoomStatus();
+            updateRoomStatus(roomStatus);
             updateRoomBtnDisplay(roomBtn, room);
           }
         }
       };
 
-      // 拖曳事件（以 roomBtn 為目標，但拖曳整個 container）
+      // 拖曳事件：拖曳整個 container（以 roomBtn 為觸發目標）
       roomBtn.addEventListener("dragstart", function(e) {
         dragSrcEl = container;
         e.dataTransfer.effectAllowed = 'move';
@@ -384,7 +394,7 @@
           if (newVoice !== null) {
             if (!roomStatus[room]) roomStatus[room] = {};
             roomStatus[room].voiceText = newVoice;
-            updateRoomStatus();
+            updateRoomStatus(roomStatus);
           }
         };
         roomBtn.appendChild(editBtn);
@@ -493,7 +503,7 @@
         return;
       }
       groups[floor].push(room);
-      localStorage.setItem("roomGroups", JSON.stringify(groups));
+      updateRoomGroups(groups);
       renderFloors();
     }
     function removeRoom(room) {
@@ -501,10 +511,10 @@
       const floor = getFloor(room);
       if (groups[floor]) {
         groups[floor] = groups[floor].filter(r => r !== room);
-        localStorage.setItem("roomGroups", JSON.stringify(groups));
+        updateRoomGroups(groups);
         if (roomStatus[room]) {
           delete roomStatus[room];
-          updateRoomStatus();
+          updateRoomStatus(roomStatus);
         }
         renderFloors();
       }
@@ -512,7 +522,7 @@
     function resetAllRooms() {
       if (confirm("確定將所有病房狀態回復成未交車？")) {
         roomStatus = {};
-        updateRoomStatus();
+        updateRoomStatus(roomStatus);
         renderFloors();
       }
     }
@@ -544,15 +554,13 @@
 
     document.getElementById("resetAllBtn").onclick = resetAllRooms;
 
-    // 管理者模式中自動重設複選框事件
     document.getElementById("autoResetCheckbox").onchange = (e) => {
-      autoResetEnabled = e.target.checked;
-      localStorage.setItem("autoResetEnabled", autoResetEnabled);
+      settings.autoResetEnabled = e.target.checked;
+      updateSettings(settings);
     };
 
     /********** 初始渲染 **********/
     renderFloors();
   </script>
-
-
-</body></html>
+</body>
+</html>
